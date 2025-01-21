@@ -1,0 +1,60 @@
+pipeline {
+    agent any
+    environment {
+        EC2_USER = 'ec2-user'                      // Replace with your EC2 user (default is 'ec2-user')
+        EC2_HOST = 'YOUR_EC2_PUBLIC_IP'            // Replace with your EC2 instance public IP
+        PEM_FILE = 'path/to/your-key.pem'          // Replace with your private key path
+        HTML_REPO = 'https://github.com/your-repo' // Replace with your GitHub repository URL
+    }
+    stages {
+        stage('Checkout Code') {
+            steps {
+                // Clone the HTML website repository from GitHub
+                git branch: 'main', url: "${HTML_REPO}"
+            }
+        }
+        stage('Prepare Deployment Files') {
+            steps {
+                script {
+                    // Archive the website files for transfer
+                    # sh 'tar -czf website.tar.gz *'
+                }
+            }
+        }
+        stage('Deploy to EC2') {
+            steps {
+                // Transfer website files to the EC2 instance
+                sh """
+                scp -i ${PEM_FILE} website.tar.gz ${EC2_USER}@${EC2_HOST}:/tmp/
+                """
+            }
+        }
+        stage('Configure Nginx on EC2') {
+            steps {
+                // SSH into the EC2 instance and deploy the website with Nginx
+                sh """
+                ssh -i ${PEM_FILE} ${EC2_USER}@${EC2_HOST} << 'EOF'
+                    sudo yum update -y
+                    sudo amazon-linux-extras enable nginx1
+                    sudo yum install nginx -y
+                    # Extract and deploy the website files
+                    sudo mkdir -p /usr/share/nginx/html
+                    sudo tar -xzf /tmp/website.tar.gz -C /usr/share/nginx/html
+                    sudo rm -rf /usr/share/nginx/html/index.html # Remove default file
+                    # Start and enable Nginx
+                    sudo systemctl enable nginx
+                    sudo systemctl start nginx
+                EOF
+                """
+            }
+        }
+    }
+    post {
+        success {
+            echo 'Deployment successful!'
+        }
+        failure {
+            echo 'Deployment failed. Check the logs for errors.'
+        }
+    }
+}
